@@ -23,9 +23,10 @@ VAL_SPLIT = 0.15
 TEST_SPLIT = 0.15
 
 # Model parameters
-BASE_MODEL = 'ResNet50'  # Options: ResNet50, MobileNet, EfficientNet
+BASE_MODEL = 'ResNet101'  # Options: ResNet50, ResNet101, MobileNetV2, EfficientNetB0, EfficientNetB3
 LEARNING_RATE = 0.0001
 DROPOUT_RATE = 0.5
+USE_FOCAL_LOSS = True  # Use focal loss for class imbalance
 
 # Training parameters
 EARLY_STOPPING_PATIENCE = 10

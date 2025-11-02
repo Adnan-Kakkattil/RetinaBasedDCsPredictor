@@ -2,22 +2,46 @@
 Model building module using transfer learning
 """
 import tensorflow as tf
-from tensorflow.keras.applications import ResNet50, MobileNetV2, EfficientNetB0
+from tensorflow.keras.applications import ResNet50, ResNet101, MobileNetV2, EfficientNetB0, EfficientNetB3
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout, BatchNormalization
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import BinaryCrossentropy
 
-def build_model(base_model_name='ResNet50', input_shape=(224, 224, 3), 
-                num_classes=1, dropout_rate=0.5, learning_rate=0.0001):
+def focal_loss(gamma=2.0, alpha=0.25):
     """
-    Build a CNN model using transfer learning
+    Focal Loss for addressing class imbalance
+    FL = -alpha * (1 - p)^gamma * log(p)
+    """
+    def focal_loss_fn(y_true, y_pred):
+        epsilon = tf.keras.backend.epsilon()
+        y_pred = tf.clip_by_value(y_pred, epsilon, 1.0 - epsilon)
+        
+        # Calculate focal loss
+        p_t = tf.where(tf.equal(y_true, 1), y_pred, 1 - y_pred)
+        alpha_t = tf.ones_like(y_true) * alpha
+        alpha_t = tf.where(tf.equal(y_true, 1), alpha_t, 1 - alpha_t)
+        
+        cross_entropy = -tf.math.log(p_t)
+        weight = alpha_t * tf.math.pow((1 - p_t), gamma)
+        loss = weight * cross_entropy
+        
+        return tf.reduce_mean(loss)
+    
+    return focal_loss_fn
+
+def build_model(base_model_name='ResNet101', input_shape=(224, 224, 3), 
+                num_classes=1, dropout_rate=0.5, learning_rate=0.0001, use_focal_loss=False):
+    """
+    Build a CNN model using transfer learning with improved architecture
     
     Args:
-        base_model_name: Name of the base model ('ResNet50', 'MobileNetV2', 'EfficientNetB0')
+        base_model_name: Name of the base model ('ResNet50', 'ResNet101', 'MobileNetV2', 'EfficientNetB0', 'EfficientNetB3')
         input_shape: Shape of input images
         num_classes: Number of output classes (1 for binary classification)
         dropout_rate: Dropout rate for regularization
         learning_rate: Learning rate for optimizer
+        use_focal_loss: Whether to use focal loss for class imbalance
     
     Returns:
         Compiled Keras model
@@ -27,34 +51,59 @@ def build_model(base_model_name='ResNet50', input_shape=(224, 224, 3),
         base_model = ResNet50(
             weights='imagenet',
             include_top=False,
-            input_shape=input_shape
+            input_shape=input_shape,
+            pooling=None
+        )
+    elif base_model_name == 'ResNet101':
+        base_model = ResNet101(
+            weights='imagenet',
+            include_top=False,
+            input_shape=input_shape,
+            pooling=None
         )
     elif base_model_name == 'MobileNetV2':
         base_model = MobileNetV2(
             weights='imagenet',
             include_top=False,
-            input_shape=input_shape
+            input_shape=input_shape,
+            pooling=None
         )
     elif base_model_name == 'EfficientNetB0':
         base_model = EfficientNetB0(
             weights='imagenet',
             include_top=False,
-            input_shape=input_shape
+            input_shape=input_shape,
+            pooling=None
+        )
+    elif base_model_name == 'EfficientNetB3':
+        base_model = EfficientNetB3(
+            weights='imagenet',
+            include_top=False,
+            input_shape=input_shape,
+            pooling=None
         )
     else:
-        raise ValueError(f"Unsupported base model: {base_model_name}")
+        raise ValueError(f"Unsupported base model: {base_model_name}. Options: ResNet50, ResNet101, MobileNetV2, EfficientNetB0, EfficientNetB3")
     
     # Freeze base model layers (we'll fine-tune later)
     base_model.trainable = False
     
-    # Add custom classification layers
+    # Add custom classification layers with improved architecture
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
     x = BatchNormalization()(x)
-    x = Dense(256, activation='relu')(x)
+    
+    # Larger hidden layers for better feature learning
+    x = Dense(512, activation='relu', name='fc1')(x)
+    x = BatchNormalization()(x)
     x = Dropout(dropout_rate)(x)
-    x = Dense(128, activation='relu')(x)
+    
+    x = Dense(256, activation='relu', name='fc2')(x)
+    x = BatchNormalization()(x)
     x = Dropout(dropout_rate)(x)
+    
+    x = Dense(128, activation='relu', name='fc3')(x)
+    x = Dropout(dropout_rate * 0.5)(x)
     
     # Output layer
     if num_classes == 1:
@@ -65,15 +114,23 @@ def build_model(base_model_name='ResNet50', input_shape=(224, 224, 3),
     # Create the full model
     model = Model(inputs=base_model.input, outputs=predictions)
     
-    # Compile model
+    # Compile model with improved metrics
     if num_classes == 1:
-        loss = 'binary_crossentropy'
-        metrics = ['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
+        if use_focal_loss:
+            loss = focal_loss(gamma=2.0, alpha=0.25)
+        else:
+            loss = BinaryCrossentropy(from_logits=False)
+        metrics = [
+            'accuracy',
+            tf.keras.metrics.Precision(name='precision'),
+            tf.keras.metrics.Recall(name='recall'),
+            tf.keras.metrics.AUC(name='auc', curve='ROC')
+        ]
     else:
         loss = 'categorical_crossentropy'
         metrics = ['accuracy']
     
-    optimizer = Adam(learning_rate=learning_rate)
+    optimizer = Adam(learning_rate=learning_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     
     return model

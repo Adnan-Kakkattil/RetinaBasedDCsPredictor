@@ -29,7 +29,35 @@ def load_model():
     global model
     if os.path.exists(MODEL_PATH):
         print(f"Loading model from {MODEL_PATH}...")
-        model = tf.keras.models.load_model(MODEL_PATH)
+        try:
+            # Try loading with custom objects for focal loss
+            from src.model_builder import focal_loss
+            custom_objects = {'focal_loss_fn': focal_loss(gamma=2.0, alpha=0.25)}
+            model = tf.keras.models.load_model(MODEL_PATH, custom_objects=custom_objects)
+        except:
+            try:
+                # Try standard load
+                model = tf.keras.models.load_model(MODEL_PATH)
+            except Exception as e:
+                print(f"Error loading model: {str(e)}")
+                print("Attempting to rebuild model...")
+                from src.model_builder import build_model
+                from src.config import BASE_MODEL, IMAGE_SIZE, IMAGE_CHANNELS, USE_FOCAL_LOSS
+                model = build_model(
+                    base_model_name=BASE_MODEL,
+                    input_shape=(*IMAGE_SIZE, IMAGE_CHANNELS),
+                    num_classes=1,
+                    use_focal_loss=USE_FOCAL_LOSS
+                )
+                # Try loading weights
+                weights_path = MODEL_PATH.replace('.h5', '_weights.h5')
+                if os.path.exists(weights_path):
+                    model.load_weights(weights_path)
+                    print("Model weights loaded!")
+                else:
+                    print("WARNING: Could not load model weights")
+                    model = None
+                    return
         print("Model loaded successfully!")
     else:
         print(f"WARNING: Model not found at {MODEL_PATH}")

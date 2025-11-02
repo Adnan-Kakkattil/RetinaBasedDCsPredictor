@@ -9,13 +9,14 @@ from sklearn.model_selection import train_test_split
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import pickle
 
-def preprocess_image(image_path, target_size=(224, 224)):
+def preprocess_image(image_path, target_size=(224, 224), enhance_contrast=True):
     """
-    Preprocess a single image
+    Preprocess a single image with advanced techniques
     
     Args:
         image_path: Path to the image file
         target_size: Tuple of (height, width) for resizing
+        enhance_contrast: Whether to apply contrast enhancement
     
     Returns:
         Preprocessed image as numpy array
@@ -29,11 +30,31 @@ def preprocess_image(image_path, target_size=(224, 224)):
         # Convert BGR to RGB (OpenCV reads as BGR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
-        # Resize image
-        image = cv2.resize(image, target_size)
+        # Enhance contrast using CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        if enhance_contrast:
+            # Convert to LAB color space
+            lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
+            l, a, b = cv2.split(lab)
+            
+            # Apply CLAHE to L channel
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            l = clahe.apply(l)
+            
+            # Merge channels and convert back to RGB
+            lab = cv2.merge([l, a, b])
+            image = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
         
-        # Normalize pixel values to [0, 1]
+        # Resize image with high-quality interpolation
+        image = cv2.resize(image, target_size, interpolation=cv2.INTER_AREA)
+        
+        # Normalize pixel values to [0, 1] using ImageNet normalization
+        # Alternative: simple normalization
         image = image.astype(np.float32) / 255.0
+        
+        # Optional: Apply ImageNet normalization statistics
+        # mean = np.array([0.485, 0.456, 0.406])
+        # std = np.array([0.229, 0.224, 0.225])
+        # image = (image - mean) / std
         
         return image
     except Exception as e:
@@ -84,7 +105,7 @@ def load_dataset_from_directory(data_dir, labels_file=None):
 
 def create_data_generators(train_dir, val_dir, test_dir=None, batch_size=32):
     """
-    Create data generators with augmentation for training
+    Create data generators with advanced augmentation for training
     
     Args:
         train_dir: Training data directory
@@ -95,20 +116,25 @@ def create_data_generators(train_dir, val_dir, test_dir=None, batch_size=32):
     Returns:
         Tuple of (train_gen, val_gen, test_gen)
     """
-    # Data augmentation for training
+    # Advanced data augmentation for training
     train_datagen = ImageDataGenerator(
-        rotation_range=20,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
+        rotation_range=30,  # Increased rotation
+        width_shift_range=0.25,  # Increased shift
+        height_shift_range=0.25,
+        shear_range=0.2,  # Added shear transformation
+        zoom_range=0.25,  # Increased zoom
         horizontal_flip=True,
-        vertical_flip=False,
-        zoom_range=0.2,
-        brightness_range=[0.8, 1.2],
-        fill_mode='nearest'
+        vertical_flip=True,  # Enabled vertical flip
+        fill_mode='reflect',  # Better fill mode
+        brightness_range=[0.7, 1.3],  # Increased brightness range
+        channel_shift_range=20.0,  # Color augmentation
+        preprocessing_function=lambda x: x / 255.0  # Normalization
     )
     
-    # No augmentation for validation and test
-    val_test_datagen = ImageDataGenerator()
+    # Minimal augmentation for validation (only normalization)
+    val_test_datagen = ImageDataGenerator(
+        preprocessing_function=lambda x: x / 255.0
+    )
     
     train_gen = train_datagen.flow_from_directory(
         train_dir,

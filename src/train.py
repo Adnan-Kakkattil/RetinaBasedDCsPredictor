@@ -40,13 +40,21 @@ def create_callbacks():
             min_lr=1e-7,
             verbose=1
         ),
-        # Model checkpoint
+        # Model checkpoint (save weights and full model)
         tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(MODELS_DIR, MODEL_NAME),
             monitor='val_accuracy',
             save_best_only=True,
             save_weights_only=False,
             verbose=1
+        ),
+        # Also save weights separately for compatibility
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=os.path.join(MODELS_DIR, MODEL_NAME.replace('.h5', '_weights.h5')),
+            monitor='val_accuracy',
+            save_best_only=True,
+            save_weights_only=True,
+            verbose=0
         ),
         # TensorBoard
         tf.keras.callbacks.TensorBoard(
@@ -155,14 +163,19 @@ def main():
     
     # Build model
     print("\n[3/5] Building model...")
+    from src.config import USE_FOCAL_LOSS
     model = build_model(
         base_model_name=BASE_MODEL,
         input_shape=(*IMAGE_SIZE, IMAGE_CHANNELS),
         num_classes=1,
         dropout_rate=DROPOUT_RATE,
-        learning_rate=LEARNING_RATE
+        learning_rate=LEARNING_RATE,
+        use_focal_loss=USE_FOCAL_LOSS
     )
     print_model_summary(model)
+    
+    if USE_FOCAL_LOSS:
+        print("\n[INFO] Using Focal Loss for class imbalance handling")
     
     # Create callbacks
     callbacks = create_callbacks()
@@ -170,6 +183,12 @@ def main():
     # Train model
     print("\n[4/5] Training model...")
     print(f"Training for {EPOCHS} epochs with batch size {BATCH_SIZE}")
+    print(f"Base model: {BASE_MODEL}")
+    
+    # Check class balance
+    from collections import Counter
+    train_dist = Counter(y_train.astype(int))
+    print(f"Training class distribution: {dict(train_dist)}")
     
     history = model.fit(
         X_train, y_train,
@@ -177,8 +196,43 @@ def main():
         epochs=EPOCHS,
         validation_data=(X_val, y_val),
         callbacks=callbacks,
-        verbose=1
+        verbose=1,
+        shuffle=True
     )
+    
+    # Fine-tuning phase (unfreeze some layers for better accuracy)
+    # Only fine-tune if we have enough data
+    if len(X_train) > 50:  # Only fine-tune with sufficient data
+        print("\n[FINE-TUNING] Starting fine-tuning phase...")
+        from src.model_builder import unfreeze_base_model
+        
+        # Unfreeze last few layers
+        unfreeze_base_model(model, layers_to_unfreeze=10)
+        
+        # Train with lower learning rate
+        fine_tune_epochs = min(10, EPOCHS // 2)
+        print(f"Fine-tuning for {fine_tune_epochs} additional epochs...")
+        
+        # Update callbacks to continue from where we left off
+        initial_epoch = len(history.history['loss'])
+        
+        history_finetune = model.fit(
+            X_train, y_train,
+            batch_size=BATCH_SIZE,
+            epochs=initial_epoch + fine_tune_epochs,
+            validation_data=(X_val, y_val),
+            callbacks=callbacks,
+            verbose=1,
+            shuffle=True,
+            initial_epoch=initial_epoch
+        )
+        
+        # Combine histories
+        for key in history.history.keys():
+            if key in history_finetune.history:
+                history.history[key].extend(history_finetune.history[key])
+    else:
+        print("\n[INFO] Skipping fine-tuning due to small dataset size")
     
     # Save training history
     history_path = os.path.join(MODELS_DIR, HISTORY_NAME)

@@ -35,7 +35,29 @@ def evaluate_model(model_path=None):
         return
     
     print(f"Loading model from {model_path}...")
-    model = tf.keras.models.load_model(model_path)
+    
+    # Handle custom loss function (focal loss)
+    try:
+        from src.model_builder import focal_loss
+        custom_objects = {'focal_loss_fn': focal_loss(gamma=2.0, alpha=0.25)}
+        model = tf.keras.models.load_model(model_path, custom_objects=custom_objects)
+    except:
+        try:
+            # Try loading without custom objects
+            model = tf.keras.models.load_model(model_path)
+        except Exception as e:
+            print(f"Error loading model: {str(e)}")
+            print("Trying to rebuild model structure...")
+            # Rebuild model
+            from src.model_builder import build_model
+            from src.config import BASE_MODEL, IMAGE_SIZE, IMAGE_CHANNELS, USE_FOCAL_LOSS
+            model = build_model(
+                base_model_name=BASE_MODEL,
+                input_shape=(*IMAGE_SIZE, IMAGE_CHANNELS),
+                num_classes=1,
+                use_focal_loss=USE_FOCAL_LOSS
+            )
+            model.load_weights(model_path.replace('.h5', '_weights.h5'))
     
     # Load test data
     print("Loading test data...")
