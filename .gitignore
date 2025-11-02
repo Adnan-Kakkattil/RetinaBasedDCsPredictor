@@ -17,9 +17,7 @@ data/*.tar.gz
 !data/.gitkeep
 
 # Models
-models/*.h5
-models/*.pkl
-models/*.hdf5
+
 !models/.gitkeep
 
 # Jupyter
@@ -48,3 +46,6 @@ logs/
 training_history/
 checkpoints/
 
+models/training_history.pkl
+models/retina_heart_disease_model.weights.h5
+models/retina_heart_disease_model.h5
