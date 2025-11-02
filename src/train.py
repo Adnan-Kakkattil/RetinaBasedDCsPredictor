@@ -50,7 +50,7 @@ def create_callbacks():
         ),
         # Also save weights separately for compatibility
         tf.keras.callbacks.ModelCheckpoint(
-            filepath=os.path.join(MODELS_DIR, MODEL_NAME.replace('.h5', '_weights.h5')),
+            filepath=os.path.join(MODELS_DIR, MODEL_NAME.replace('.h5', '.weights.h5')),
             monitor='val_accuracy',
             save_best_only=True,
             save_weights_only=True,
